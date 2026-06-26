@@ -1,0 +1,28 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # 抓取各设备的 node_exporter
+  - job_name: 'node'
+    file_sd_configs:
+      - files: ['/etc/prometheus/targets/node.json']
+        refresh_interval: 30s
+    relabel_configs:
+      # 用可读的 device 名替换默认的 IP:端口 instance
+      - source_labels: [device]
+        target_label: instance
+
+  # 抓取各设备的 cAdvisor
+  - job_name: 'cadvisor'
+    file_sd_configs:
+      - files: ['/etc/prometheus/targets/cadvisor.json']
+        refresh_interval: 30s
+    relabel_configs:
+      - source_labels: [device]
+        target_label: instance
+
+  # Prometheus 自身
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

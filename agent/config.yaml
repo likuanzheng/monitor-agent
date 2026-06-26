@@ -1,0 +1,73 @@
+# ============================================================================
+# monitor-agent 配置
+# 改设备 -> 改 ~/prometheus/targets/*.json（agent 自动发现，无需动这里）
+# 加监控字段 -> 在下面 physical_metrics / container_metrics 加一条 spec（无需改代码）
+# ============================================================================
+
+# Prometheus 地址（可被环境变量 PROM_URL 覆盖）
+prometheus_url: http://prometheus:9090
+# 轮询间隔秒（可被环境变量 INTERVAL 覆盖）
+interval_seconds: 15
+# 速率类查询的时间窗口；下面 PromQL 里的 $RATE 会被替换成这个值
+rate_window: 1m
+# 单条查询超时秒
+timeout_seconds: 10
+
+# ---- 设备发现：取该查询结果里 label 标签的取值集合作为「当前所有物理设备」 ----
+device_discovery:
+  promql: 'up{job="node"}'
+  label: instance
+
+# ---- 物理机指标：每条 spec 产出设备记录 physical 下的一个字段 ----
+# kind:
+#   scalar  每设备一个标量（按 instance 落位）
+#   keyed   按 key_label 展开成 {key: value}（如每核使用率）
+#   list    多行 -> 列表；keep_labels 保留/重命名标签（"源:别名"），value_field 命名数值
+physical_metrics:
+  # CPU/SoC 温度：x86 取 coretemp，ARM 取 soc:scpi 传感器；各机命名可能不同，按需改
+  - field: cpu_package_temp_c
+    promql: 'node_hwmon_temp_celsius{chip=~"(.*coretemp.*|soc.*scpi.*sensors)",sensor="temp1"}'
+    kind: scalar
+
+  - field: cpu_freq_mhz
+    promql: 'avg by (instance) (node_cpu_scaling_frequency_hertz) / 1e6'
+    kind: scalar
+
+  - field: memory_available_bytes
+    promql: 'node_memory_MemAvailable_bytes'
+    kind: scalar
+
+  - field: cpu_core_usage_percent
+    promql: '100 - (avg by (instance,cpu) (rate(node_cpu_seconds_total{mode="idle"}[$RATE])) * 100)'
+    kind: keyed
+    key_label: cpu
+
+  - field: disks
+    promql: 'node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|ramfs"}'
+    kind: list
+    keep_labels: ["mountpoint:mount", "fstype"]
+    value_field: free_bytes
+
+# ---- 容器发现：枚举每设备上在跑的「docker」容器，并抓取这些标签作为容器元信息 ----
+# id 过滤掉 k8s 容器(/kubepods/...)，只保留 docker 的(/system.slice/docker-* 或 /docker/*)。
+# 若这台机器只有纯 docker、想要全部容器，把 id=~... 去掉即可。
+container_discovery:
+  promql: 'container_last_seen{name!="",id=~"(/system.slice/docker-.*|/docker/.*)"}'
+  id_labels: [id, image]
+
+# ---- 容器指标：每条 spec 产出每个容器对象下的一个字段（按 instance+name 落位）----
+container_metrics:
+  - field: memory_bytes
+    promql: 'container_memory_usage_bytes{name!=""}'
+    kind: scalar
+
+  - field: cpu_percent
+    promql: 'sum by (instance,name) (rate(container_cpu_usage_seconds_total{name!=""}[$RATE])) * 100'
+    kind: scalar
+
+# ---- 输出口（可插拔，可同时多个）----
+# stdout=多行缩进JSON(docker logs 看)  pretty=易读摘要  file=JSON快照(机读)
+outputs:
+  - type: stdout
+  - type: file
+    path: /data/devices.json
