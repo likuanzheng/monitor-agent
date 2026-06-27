@@ -1,0 +1,43 @@
+version: '3.8'
+services:
+  node_exporter:
+    image: quay.io/prometheus/node-exporter:latest
+    container_name: node_exporter
+    command:
+      - '--path.rootfs=/host'
+      - '--collector.disable-defaults'
+      - '--collector.cpu'
+      - '--collector.loadavg'
+      - '--collector.hwmon'
+      - '--collector.meminfo'
+      - '--collector.filesystem'
+      - '--collector.diskstats'
+      - '--collector.filesystem.fs-types-exclude=^(autofs|overlay|tmpfs|devtmpfs|squashfs|fuse.*)$$'
+    network_mode: host
+    pid: host
+    restart: unless-stopped
+    volumes:
+      - '/:/host:ro,rslave'
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: cadvisor
+    restart: unless-stopped
+    privileged: true
+    ports:
+      - '8080:8080'
+    devices:
+      - '/dev/kmsg'
+    volumes:
+      - '/:/rootfs:ro'
+      - '/var/run:/var/run:ro'
+      - '/sys:/sys:ro'
+      - '/var/lib/docker/:/var/lib/docker:ro'
+      - '/dev/disk/:/dev/disk:ro'
+  ix-exporter:
+    image: registry.iluvatar.com.cn:10443/k8s/ix-exporter:4.3.0
+    container_name: ix-exporter
+    restart: unless-stopped
+    privileged: true     # 天数卡通常需要;若想精确可改用下面的 devices
+    ports:
+      - '32021:32021'    # ← 改成 image inspect 查到的真实端口

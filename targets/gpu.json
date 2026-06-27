@@ -1,3 +1,4 @@
 [
-  {"targets": ["192.168.32.153:32021"], "labels": {"device": "A100-infer-01"}}
+  {"targets": ["192.168.32.153:32021"], "labels": {"device": "A100-infer-01"}},
+  {"targets": ["192.168.32.210:32021"], "labels": {"device": "B100-01"}}
 ]

@@ -49,35 +49,38 @@ physical_metrics:
     value_field: free_bytes
 
 # ============================================================================
-# GPU（天数智芯 ix-exporter，ix_* 指标）。结构同容器：每设备下若干块卡。
-# key_label=gpu 区分同机多卡；driver 不可用时 ix_temperature=255 / ix_power_usage=65535
-# 用 null_if 映射成 null，避免显示成 255°C 这种假值。
+# GPU。跨平台统一：天数智芯离散卡走 ix-exporter(ix_*)，Jetson(如 B100/Orin)走自研
+# jetson_exporter(gpu_*)。两者 label(gpu/name/uuid)、后缀、单位完全对齐，只差前缀，
+# 所以每个 query 用 `ix_X or gpu_X` 并集即可同时命中两类设备(同机不会同时有两种前缀)。
+# 加新厂商 exporter：只要它也按这套后缀/label 出指标，在并集里再 `or 它的前缀_X` 即可。
+# 结构同容器：每设备下若干块卡，key_label=gpu 区分同机多卡。
+# 哨兵值→null：ix 驱动不可用时 temperature=255 / power=65535；jetson 老版 temperature=-256。
 # ============================================================================
 gpu_discovery:
-  promql: 'ix_mem_total'        # 每块卡恒有一条，用来枚举 GPU
+  promql: 'ix_mem_total or gpu_mem_total'   # 每块卡恒有一条，用来枚举 GPU
   key_label: gpu
   key_field: index
   meta_labels: [name, uuid]
 
 gpu_metrics:
   - field: gpu_util_percent
-    promql: 'ix_gpu_utilization'
+    promql: 'ix_gpu_utilization or gpu_utilization'
   - field: mem_used_mb
-    promql: 'ix_mem_used'
+    promql: 'ix_mem_used or gpu_mem_used'
   - field: mem_total_mb
-    promql: 'ix_mem_total'
+    promql: 'ix_mem_total or gpu_mem_total'
   - field: mem_util_percent
-    promql: 'ix_mem_utilization'
+    promql: 'ix_mem_utilization or gpu_mem_utilization'
   - field: temperature_c
-    promql: 'ix_temperature'
-    null_if: [255]
+    promql: 'ix_temperature or gpu_temperature'
+    null_if: [255, -256]
   - field: power_w
-    promql: 'ix_power_usage'
+    promql: 'ix_power_usage or gpu_power_usage'
     null_if: [65535]
   - field: sm_clock_mhz
-    promql: 'ix_sm_clock'
+    promql: 'ix_sm_clock or gpu_sm_clock'
   - field: mem_clock_mhz
-    promql: 'ix_mem_clock'
+    promql: 'ix_mem_clock or gpu_mem_clock'
 
 # ---- 容器发现：枚举每设备上在跑的「docker」容器，并抓取这些标签作为容器元信息 ----
 # id 过滤掉 k8s 容器(/kubepods/...)，只保留 docker 的(/system.slice/docker-* 或 /docker/*)。

@@ -1,0 +1,48 @@
+  services:
+    node_exporter:
+      image: prom/node-exporter:latest
+      container_name: node_exporter
+      command:
+        - '--path.rootfs=/host'
+        - '--collector.disable-defaults'
+        - '--collector.cpu'
+        - '--collector.loadavg'
+        - '--collector.hwmon'
+        - '--collector.meminfo'
+        - '--collector.filesystem'
+        - '--collector.diskstats'
+        - '--collector.filesystem.fs-types-exclude=^(autofs|overlay|tmpfs|devtmpfs|squashfs|fuse.*)$$'
+      network_mode: host
+      pid: host
+      restart: unless-stopped
+      volumes:
+        - '/:/host:ro,rslave'
+
+    cadvisor:
+      image: zcube/cadvisor:latest
+      container_name: cadvisor
+      restart: unless-stopped
+      privileged: true
+      ports:
+        - '8080:8080'
+      devices:
+        - '/dev/kmsg'
+      volumes:
+        - '/:/rootfs:ro'
+        - '/var/run:/var/run:ro'
+        - '/sys:/sys:ro'
+        - '/var/lib/docker/:/var/lib/docker:ro'
+        - '/dev/disk/:/dev/disk:ro'
+
+    jetson_exporter:
+      image: jetson_exporter:local
+      build:
+        context: ./jetson_exporter
+        dockerfile: Dockerfile
+      pull_policy: never
+      container_name: jetson_exporter
+      restart: unless-stopped
+      ports:
+        - '32021:32021'
+      volumes:
+        - '/run/jtop.sock:/run/jtop.sock'

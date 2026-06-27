@@ -1,3 +1,4 @@
 [
-  {"targets": ["192.168.32.153:8080"], "labels": {"device": "A100-infer-01"}}
+  {"targets": ["192.168.32.153:8080"], "labels": {"device": "A100-infer-01"}},
+  {"targets": ["192.168.32.210:8080"], "labels": {"device": "B100-01"}}
 ]
