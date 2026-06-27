@@ -74,6 +74,19 @@ class PrettyOutput:
             )
             lines.append(f"    磁盘 {_fmt_disks(p.get('disks'))}")
 
+            gpus = d.get("gpus", [])
+            if gpus:
+                lines.append(f"    GPU {len(gpus)} 块：")
+                for g in gpus:
+                    util = g.get("gpu_util_percent")
+                    util_s = f"{util:.0f}%" if util is not None else DASH
+                    mu, mt = g.get("mem_used_mb"), g.get("mem_total_mb")
+                    mem_s = f"{mu:.0f}/{mt:.0f}MB" if mu is not None and mt is not None else DASH
+                    lines.append(
+                        f"      ▸ GPU{g.get('index')} {str(g.get('name', '')):<18.18}"
+                        f" util {util_s:>4}   显存 {mem_s:>12}   温度 {_fmt_temp(g.get('temperature_c'))}"
+                    )
+
             conts = d["containers"]
             lines.append(f"    容器 {len(conts)} 个" + ("：" if conts else "：（无）"))
             for c in conts:
@@ -82,6 +95,7 @@ class PrettyOutput:
                 lines.append(
                     f"      ✓ {c['name']:<22.22} cpu {cpu_s}"
                     f"   mem {_human_bytes(c.get('memory_bytes')):>9}"
+                    f"   disk {_human_bytes(c.get('disk_usage_bytes')):>9}"
                     f"   {c.get('image', '')}"
                 )
             lines.append("")

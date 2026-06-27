@@ -75,26 +75,36 @@ class Engine:
                 log.warning("unknown physical metric kind=%s field=%s", kind, field)
         return out
 
-    # ---- 容器 -> {(instance, name): {name, state, id, image, field...}} ----
-    def collect_containers(self):
-        disc = self.config["container_discovery"]
-        id_labels = disc.get("id_labels", [])
-        containers = {}
+    # ---- 通用「实体」采集：容器、GPU 等「每设备下若干个」的东西共用 ----
+    # discovery 描述如何枚举实体并取元信息，metric_specs 给每个实体补字段。
+    # 返回 {instance: [实体dict, ...]}，按 instance 归组好，供 assembler 直接嵌进设备记录。
+    def collect_entities(self, discovery, metric_specs):
+        key_label = discovery["key_label"]          # 用哪个标签区分同一设备内的实体(name/gpu)
+        key_field = discovery.get("key_field", key_label)  # 输出里这个 key 叫什么
+        meta_labels = discovery.get("meta_labels", [])     # 一并抓取的元信息标签
+        constants = discovery.get("constants", {})         # 固定附加字段(如 state: running)
 
-        for r in self._query(disc["promql"]):
+        entities = {}
+        for r in self._query(discovery["promql"]):
             inst = r["labels"].get("instance")
-            name = r["labels"].get("name")
-            if not inst or not name:
+            key = r["labels"].get(key_label)
+            if not inst or key is None:
                 continue
-            info = {"name": name, "state": "running"}
-            for lbl in id_labels:
+            info = {key_field: key, **constants}
+            for lbl in meta_labels:
                 info[lbl] = r["labels"].get(lbl)
-            containers[(inst, name)] = info
+            entities[(inst, key)] = info
 
-        for spec in self.config.get("container_metrics", []):
+        for spec in metric_specs:
             field = spec["field"]
+            null_if = set(spec.get("null_if", []))  # 驱动「不可用」哨兵值映射成 null
             for r in self._query(spec["promql"]):
-                key = (r["labels"].get("instance"), r["labels"].get("name"))
-                if key in containers:
-                    containers[key][field] = r["value"]
-        return containers
+                ek = (r["labels"].get("instance"), r["labels"].get(key_label))
+                if ek in entities:
+                    value = r["value"]
+                    entities[ek][field] = None if value in null_if else value
+
+        by_instance = {}
+        for (inst, _key), info in entities.items():
+            by_instance.setdefault(inst, []).append(info)
+        return by_instance

@@ -1,12 +1,11 @@
-"""把引擎产出的物理 / 容器结果组装成「每设备一条（含嵌套容器）」的快照。"""
+"""把引擎产出的物理 / GPU / 容器结果组装成「每设备一条（含嵌套 GPU、容器）」的快照。
+
+containers_by_device / gpus_by_device 均为引擎 collect_entities 产出的 {instance: [实体...]}。
+"""
 
 
-def build_snapshot(devices, physical, containers, timestamp, prometheus_url, physical_fields):
-    # 容器按 instance 归组
-    by_device = {}
-    for (inst, _name), info in containers.items():
-        by_device.setdefault(inst, []).append(info)
-
+def build_snapshot(devices, physical, gpus_by_device, containers_by_device,
+                   timestamp, prometheus_url, physical_fields):
     records = []
     for dev in devices:
         phys = dict(physical.get(dev, {}))
@@ -18,7 +17,8 @@ def build_snapshot(devices, physical, containers, timestamp, prometheus_url, phy
             "device": dev,
             "timestamp": timestamp,
             "physical": phys,
-            "containers": sorted(by_device.get(dev, []), key=lambda c: c["name"]),
+            "gpus": sorted(gpus_by_device.get(dev, []), key=lambda g: str(g.get("index"))),
+            "containers": sorted(containers_by_device.get(dev, []), key=lambda c: str(c.get("name"))),
         })
 
     return {

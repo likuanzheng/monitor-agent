@@ -22,6 +22,15 @@ scrape_configs:
       - source_labels: [device]
         target_label: instance
 
+  # 抓取各设备的 GPU exporter（天数智芯 ix-exporter）
+  - job_name: 'gpu'
+    file_sd_configs:
+      - files: ['/etc/prometheus/targets/gpu.json']
+        refresh_interval: 30s
+    relabel_configs:
+      - source_labels: [device]
+        target_label: instance
+
   # Prometheus 自身
   - job_name: 'prometheus'
     static_configs:

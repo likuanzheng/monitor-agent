@@ -43,26 +43,82 @@ physical_metrics:
     key_label: cpu
 
   - field: disks
-    promql: 'node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|ramfs"}'
+    promql: 'node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|ramfs|nsfs|devtmpfs|fuse.*"}'
     kind: list
     keep_labels: ["mountpoint:mount", "fstype"]
     value_field: free_bytes
+
+# ============================================================================
+# GPU（天数智芯 ix-exporter，ix_* 指标）。结构同容器：每设备下若干块卡。
+# key_label=gpu 区分同机多卡；driver 不可用时 ix_temperature=255 / ix_power_usage=65535
+# 用 null_if 映射成 null，避免显示成 255°C 这种假值。
+# ============================================================================
+gpu_discovery:
+  promql: 'ix_mem_total'        # 每块卡恒有一条，用来枚举 GPU
+  key_label: gpu
+  key_field: index
+  meta_labels: [name, uuid]
+
+gpu_metrics:
+  - field: gpu_util_percent
+    promql: 'ix_gpu_utilization'
+  - field: mem_used_mb
+    promql: 'ix_mem_used'
+  - field: mem_total_mb
+    promql: 'ix_mem_total'
+  - field: mem_util_percent
+    promql: 'ix_mem_utilization'
+  - field: temperature_c
+    promql: 'ix_temperature'
+    null_if: [255]
+  - field: power_w
+    promql: 'ix_power_usage'
+    null_if: [65535]
+  - field: sm_clock_mhz
+    promql: 'ix_sm_clock'
+  - field: mem_clock_mhz
+    promql: 'ix_mem_clock'
 
 # ---- 容器发现：枚举每设备上在跑的「docker」容器，并抓取这些标签作为容器元信息 ----
 # id 过滤掉 k8s 容器(/kubepods/...)，只保留 docker 的(/system.slice/docker-* 或 /docker/*)。
 # 若这台机器只有纯 docker、想要全部容器，把 id=~... 去掉即可。
 container_discovery:
   promql: 'container_last_seen{name!="",id=~"(/system.slice/docker-.*|/docker/.*)"}'
-  id_labels: [id, image]
+  key_label: name
+  key_field: name
+  meta_labels: [id, image]
+  constants:
+    state: running
 
 # ---- 容器指标：每条 spec 产出每个容器对象下的一个字段（按 instance+name 落位）----
 container_metrics:
+  # CPU 占用率（%，跨多核可 >100%）
+  - field: cpu_percent
+    promql: 'sum by (instance,name) (rate(container_cpu_usage_seconds_total{name!=""}[$RATE])) * 100'
+    kind: scalar
+
+  # 内存占用 / 限额（limit=0 表示未设限，即不限制；算占用率用）
   - field: memory_bytes
     promql: 'container_memory_usage_bytes{name!=""}'
     kind: scalar
+  - field: memory_limit_bytes
+    promql: 'max by (instance,name) (container_spec_memory_limit_bytes{name!=""})'
+    kind: scalar
 
-  - field: cpu_percent
-    promql: 'sum by (instance,name) (rate(container_cpu_usage_seconds_total{name!=""}[$RATE])) * 100'
+  # 磁盘占用：容器可写层用量 / 文件系统总量
+  - field: disk_usage_bytes
+    promql: 'sum by (instance,name) (container_fs_usage_bytes{name!=""})'
+    kind: scalar
+  - field: disk_limit_bytes
+    promql: 'max by (instance,name) (container_fs_limit_bytes{name!=""})'
+    kind: scalar
+
+  # 网络速率（字节/秒）
+  - field: net_rx_bytes_per_sec
+    promql: 'sum by (instance,name) (rate(container_network_receive_bytes_total{name!=""}[$RATE]))'
+    kind: scalar
+  - field: net_tx_bytes_per_sec
+    promql: 'sum by (instance,name) (rate(container_network_transmit_bytes_total{name!=""}[$RATE]))'
     kind: scalar
 
 # ---- 输出口（可插拔，可同时多个）----

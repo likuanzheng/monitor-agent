@@ -34,13 +34,16 @@ def load_config(path):
 def run_once(engine, config, outputs):
     devices = engine.discover_devices()
     physical = engine.collect_physical()
-    containers = engine.collect_containers()
+    gpus = (engine.collect_entities(config["gpu_discovery"], config.get("gpu_metrics", []))
+            if config.get("gpu_discovery") else {})
+    containers = engine.collect_entities(config["container_discovery"], config.get("container_metrics", []))
     physical_fields = [s["field"] for s in config.get("physical_metrics", [])]
 
     snapshot = build_snapshot(
         devices=devices,
         physical=physical,
-        containers=containers,
+        gpus_by_device=gpus,
+        containers_by_device=containers,
         timestamp=int(time.time()),
         prometheus_url=config["prometheus_url"],
         physical_fields=physical_fields,
