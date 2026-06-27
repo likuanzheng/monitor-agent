@@ -19,7 +19,10 @@
         - '/:/host:ro,rslave'
 
     cadvisor:
-      image: zcube/cadvisor:latest
+      # 官方多架构镜像(含 arm64)。原 zcube/cadvisor:latest 太旧、不认 Docker 29 的
+      # overlay2 存储布局,会报 "failed to identify the read-write layer ID"(去找不存在的
+      # image/overlayfs/ 目录),导致容器 handler 创建失败→name/image 全空→agent 抓不到容器。
+      image: gcr.io/cadvisor/cadvisor:latest
       container_name: cadvisor
       restart: unless-stopped
       privileged: true

@@ -36,22 +36,34 @@
 
 ## 待办 / 下一步（按顺序）
 
-- [ ] **① 在 B100-01(Orin) 上重部署新版 jetson_exporter**（需用户在 Jetson 宿主 sudo）。
-      ⚠️ Jetson 构建坑：必须用经典构建器，别用 `compose build`（详见 `exporters/B100/node_exporter/README.md`）：
+- [ ] **① 在 B100-01(Orin) 上重部署修好的 jetson_exporter**（需用户在 Jetson 宿主 sudo）。
+      已修 `exporter.py` 一个真 bug：jtop 的 `.gpu`/`.memory` 是 Mapping-like 对象、**非 dict 实例**，
+      原代码用 `isinstance(x, dict)` 当闸门 → util/显存/频率整段被跳过（只有 temperature/power 是真
+      dict 才出值）。改用 `as_map()` 鸭子类型转 dict；并修 EMC 频率取自 `.memory['EMC']['cur']`
+      （`.emc` 属性不存在）；温度尊重 `online`（GPU 传感器离线值 -256 跳过当 null）。
+      ⚠️ Jetson 构建坑：必须用经典构建器，别用 `compose build`（详见同目录 README.md）：
       ```
+      # 先把上位机仓库里这版 exporter.py 同步到 Jetson，再：
       cd ~/node_exporter/jetson_exporter
       sudo DOCKER_BUILDKIT=0 docker build -t jetson_exporter:local .
       cd ~/node_exporter && sudo docker compose up -d --no-build jetson_exporter
+      curl -s localhost:32021/gpu.json   # util/显存/频率应有真实值
       ```
-      之后 `curl -s localhost:32021/metrics | grep gpu_utilization` 应有值。
+      踩坑提醒：重建时若旧容器没替换干净会出现多个 jetson_exporter / 野容器抢占 32021，
+      先 `sudo docker ps -a --filter name=jetson_exporter -q | xargs -r sudo docker rm -f` 清掉再起。
 - [ ] **② 重部署 agent + 重建 prometheus**（本轮改了 prometheus 无关，但之前那次改了 prometheus.yml）：
       ```
       cd ~/prometheus && sudo docker compose up -d --build monitor-agent
       ```
       （targets/*.json 改动 file_sd 30s 自动生效，无需重建 prometheus。）
-- [ ] **③ 查 B100-01 容器为 0 的原因**：本轮 agent 输出该设备 containers 空。疑似 Jetson 的 docker
-      cgroup 路径不匹配 `container_discovery` 的 id 正则 `(/system.slice/docker-.*|/docker/.*)`。
-      待 cadvisor 起来后查 `container_last_seen{instance="B100-01"}` 的真实 id 标签再调正则。
+- [x] **③ B100-01 容器为 0 —— 已定位根因（非 agent 问题）**：
+      不是正则问题。容器 scope 本就是标准 `/system.slice/docker-<id>.scope`（cgroup v2 + systemd 驱动）。
+      根因是 B100 用的 **`zcube/cadvisor:latest` 镜像太旧、不认 Docker 29 的 overlay2 存储布局**：
+      cadvisor 去找 `image/overlayfs/`（实为 `overlay2/`）→「failed to identify the read-write layer ID」
+      → 容器 handler 创建失败 → `name`/`image` 全空 → agent 的 `name!=""` 过滤掉 → 0 条。
+      **修法**：已把 `exporters/B100/.../docker-compose.yaml` 的 cadvisor 换成官方多架构
+      `gcr.io/cadvisor/cadvisor:latest`（与 A100 一致）。待在 B100 上 `sudo docker compose up -d cadvisor`
+      重拉后，复查 `container_last_seen{instance="B100-01",name!=""}` 应有值。
 - [ ] `cpu_freq_mhz` 永远 null（设备侧未出频率指标）——要么补采，要么从 config 去掉该字段。
 - [ ] 多卡场景仍未实测（两台都是单卡）；`key_label=gpu` 已按多卡设计。
 

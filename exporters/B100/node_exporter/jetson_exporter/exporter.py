@@ -79,6 +79,17 @@ def _round(v, n=1):
     return round(float(v), n) if v is not None else None
 
 
+def as_map(x):
+    """jtop 的 .gpu/.memory 是 Mapping-like 自定义对象、并非 dict 实例，
+    用 isinstance(x, dict) 判会漏掉它们。统一转成真 dict 再取值。"""
+    if isinstance(x, dict):
+        return x
+    try:
+        return dict(x)
+    except Exception:
+        return {}
+
+
 def read_snapshot(jetson):
     """Map a jtop snapshot to one unified GPU record (Jetson = single iGPU)."""
     board = safe(lambda: jetson.board, {}) or {}
@@ -87,22 +98,21 @@ def read_snapshot(jetson):
     serial = hw.get('Serial Number') or hw.get('SoC') or 'jetson-0'
     uuid = 'GPU-%s' % serial
 
-    # utilization + SM clock (kHz -> MHz)
+    # utilization + SM clock (status.load 0-100; freq.cur kHz -> MHz)
     gpu_util = sm_clock = None
-    g = safe(lambda: jetson.gpu)
-    if isinstance(g, dict) and g:
-        first = next(iter(g.values()))
-        if isinstance(first, dict):
-            gpu_util = safe(lambda: first['status']['load'])
-            cur = safe(lambda: first['freq']['cur'])
-            if cur is not None:
-                sm_clock = float(cur) / 1000.0
+    g = as_map(safe(lambda: jetson.gpu))
+    if g:
+        first = as_map(next(iter(g.values())))
+        gpu_util = safe(lambda: first['status']['load'])
+        cur = safe(lambda: first['freq']['cur'])
+        if cur is not None:
+            sm_clock = float(cur) / 1000.0
 
     # memory (unified system RAM, KB -> MiB)
     mem_used = mem_total = mem_free = mem_util = None
-    m = safe(lambda: jetson.memory)
-    ram = m.get('RAM') if isinstance(m, dict) else None
-    if isinstance(ram, dict):
+    m = as_map(safe(lambda: jetson.memory))
+    ram = as_map(m.get('RAM'))
+    if ram:
         tot = ram.get('tot')
         used = ram.get('used')
         if tot:
@@ -113,35 +123,33 @@ def read_snapshot(jetson):
             mem_free = mem_total - mem_used
             mem_util = mem_used / mem_total * 100.0 if mem_total else None
 
-    # temperature (GPU sensor)
+    # temperature (GPU sensor; 离线传感器 online=False/值=-256，跳过当无值)
     temp = None
-    t = safe(lambda: jetson.temperature)
-    if isinstance(t, dict):
-        for k, v in t.items():
-            if 'gpu' in k.lower():
-                temp = v.get('temp') if isinstance(v, dict) else v
-                break
+    for k, v in as_map(safe(lambda: jetson.temperature)).items():
+        if 'gpu' in k.lower():
+            v = as_map(v)
+            if v.get('online', True):
+                temp = v.get('temp')
+            break
 
     # power (prefer a GPU rail, else total; mW -> W)
     power = None
-    p = safe(lambda: jetson.power)
-    if isinstance(p, dict):
-        rail = p.get('rail', {})
-        if isinstance(rail, dict):
-            for k, v in rail.items():
-                if 'gpu' in k.lower() and isinstance(v, dict) and 'power' in v:
-                    power = float(v['power']) / 1000.0
-                    break
-        if power is None:
-            tot = p.get('tot', {})
-            pw = tot.get('power') if isinstance(tot, dict) else None
-            if pw is not None:
-                power = float(pw) / 1000.0
+    p = as_map(safe(lambda: jetson.power))
+    for k, v in as_map(p.get('rail')).items():
+        if 'gpu' in k.lower():
+            v = as_map(v)
+            if v.get('power') is not None:
+                power = float(v['power']) / 1000.0
+            break
+    if power is None:
+        tot = as_map(p.get('tot'))
+        if tot.get('power') is not None:
+            power = float(tot['power']) / 1000.0
 
-    # memory controller clock (EMC, kHz -> MHz)
+    # memory controller clock (EMC.cur kHz -> MHz; 注意 EMC 在 .memory 里，无 .emc 属性)
     mem_clock = None
-    emc = safe(lambda: jetson.emc)
-    if isinstance(emc, dict) and emc.get('cur') is not None:
+    emc = as_map(m.get('EMC'))
+    if emc.get('cur') is not None:
         mem_clock = float(emc['cur']) / 1000.0
 
     return {
